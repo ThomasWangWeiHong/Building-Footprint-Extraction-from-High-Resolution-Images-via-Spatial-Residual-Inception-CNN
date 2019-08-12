@@ -702,7 +702,8 @@ def sri_net(img_height_size, img_width_size, n_bands, group_filters, kernel_reg_
 
 
 
-def image_model_predict(input_image_filename, output_filename, img_height_size, img_width_size, fitted_model, write):
+def image_model_predict(input_image_filename, output_filename, img_height_size, img_width_size, percentage_overlap, 
+                        fitted_model, write):
     """ 
     This function cuts up an image into segments of fixed size, and feeds each segment to the model for prediction. The 
     output mask is then allocated to its corresponding location in the image in order to obtain the complete mask for the 
@@ -712,7 +713,8 @@ def image_model_predict(input_image_filename, output_filename, img_height_size, 
     - input_image_filename: File path of image file for which prediction is to be conducted
     - output_filename: File path of output predicted binary raster mask file
     - img_height_size: Height of image patches to be used for model prediction
-    - img_height_size: Width of image patches to be used for model prediction
+    - img_width_size: Width of image patches to be used for model prediction
+    - percentage_overlap: Percentage of overlap between adjacent patches of image for model prediction
     - fitted_model: Trained keras model which is to be used for prediction
     - write: Boolean indicating whether to write predicted binary raster mask to file
     
@@ -720,6 +722,9 @@ def image_model_predict(input_image_filename, output_filename, img_height_size, 
     - mask_complete: Numpy array of predicted binary raster mask for input image
     
     """
+    
+    if percentage_overlap < 0 or percentage_overlap >= 1:
+        raise ValueError('Please ensure that percentage_overlap is a value between 0 (inclusive) and 1 (exclusive)')
     
     with rasterio.open(input_image_filename) as f:
         metadata = f.profile
@@ -740,26 +745,28 @@ def image_model_predict(input_image_filename, output_filename, img_height_size, 
     else:
          img_complete = img
             
-    mask = np.zeros((img_complete.shape[0], img_complete.shape[1], 1))
+    prob_mask = np.zeros((img_complete.shape[0], img_complete.shape[1], 1))
+    weight_mask = np.zeros((img_complete.shape[0], img_complete.shape[1], 1)) + 0.00001
     img_holder = np.zeros((1, img_height_size, img_width_size, img.shape[2]))
     
-    for i in range(0, img_complete.shape[0], img_height_size):
-        for j in range(0, img_complete.shape[1], img_width_size):
-            img_holder[0] = img_complete[i : i + img_height_size, j : j + img_width_size, 0 : img.shape[2]]
+    for i in range(0, img_complete.shape[0] - img_height_size + 1, int((1 - percentage_overlap) * img_height_size)):
+        for j in range(0, img_complete.shape[1] - img_width_size + 1, int((1 - percentage_overlap) * img_width_size)):
+            img_holder[0] = img_complete[i : (i + img_height_size), j : (j + img_width_size), 0 : img.shape[2]]
             preds = fitted_model.predict(img_holder)
-            mask[i : i + img_height_size, j : j + img_width_size, 0] = preds[0, :, :, 0]
+            prob_mask[i : i + img_height_size, j : j + img_width_size, 0] += preds[0, :, :, 0]
+            weight_mask[i : i + img_height_size, j : j + img_width_size, 0] += 1
             
-    mask_complete = np.expand_dims(mask[0 : img.shape[0], 0 : img.shape[1], 0], axis = 2)
-    mask_complete = np.transpose(mask_complete, [2, 0, 1]).astype('float32')
-    
+    prob_mask_complete = prob_mask[0 : img.shape[0], 0 : img.shape[1], 0]
+    weight_mask_complete = weight_mask[0 : img.shape[0], 0 : img.shape[1], 0]
+    prob_mask_final = np.expand_dims((prob_mask_complete / weight_mask_complete), axis = 0).astype(np.float32)
+ 
     
     if write:
         metadata['count'] = 1
         metadata['dtype'] = 'float32'
         
         with rasterio.open(output_filename, 'w', **metadata) as dst:
-            dst.write(mask_complete)
+            dst.write(prob_mask_final)
     
-    return mask_complete
-
+    return prob_mask_final
 
