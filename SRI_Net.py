@@ -719,7 +719,7 @@ def image_model_predict(input_image_filename, output_filename, img_height_size, 
     - write: Boolean indicating whether to write predicted binary raster mask to file
     
     Output:
-    - mask_complete: Numpy array of predicted binary raster mask for input image
+    - prob_mask_final: Numpy array of predicted binary raster mask for input image
     
     """
     
