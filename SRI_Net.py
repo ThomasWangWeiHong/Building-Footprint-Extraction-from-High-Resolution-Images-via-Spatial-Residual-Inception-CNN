@@ -746,7 +746,7 @@ def image_model_predict(input_image_filename, output_filename, img_height_size, 
          img_complete = img
             
     prob_mask = np.zeros((img_complete.shape[0], img_complete.shape[1], 1))
-    weight_mask = np.zeros((img_complete.shape[0], img_complete.shape[1], 1)) + 0.00001
+    weight_mask = np.zeros((img_complete.shape[0], img_complete.shape[1], 1))
     img_holder = np.zeros((1, img_height_size, img_width_size, img.shape[2]))
     
     for i in range(0, img_complete.shape[0] - img_height_size + 1, int((1 - percentage_overlap) * img_height_size)):
