@@ -31,7 +31,7 @@ def training_mask_generation(input_image_filename, input_geojson_filename):
         metadata = f.profile
         image = np.transpose(f.read(tuple(np.arange(metadata['count']) + 1)), [1, 2, 0])
         
-    mask = np.zeros((image.shape[0], image.shape[1]))
+    mask = np.zeros((image.shape[0], image.shape[1])).astype(np.uint8)
     
     ulx = metadata['transform'][2]
     xres = metadata['transform'][0]
@@ -50,13 +50,13 @@ def training_mask_generation(input_image_filename, input_geojson_filename):
         coords[:, 1] = yf * (coords[:, 1] - uly)
         coords[:, 0] = xf * (coords[:, 0] - ulx)                                       
         position = np.round(coords).astype(np.int32)
-        cv2.fillConvexPoly(mask, position, 1)
+        cv2.fillPoly(mask, [position], 1)
     
     return mask
 
 
 
-def image_clip_to_segment_and_convert(image_array, mask_array, image_height_size, image_width_size, mode, percentage_overlap, 
+def image_clip_to_segment_and_convert(image_array, mask_array, image_height_size, image_width_size, percentage_overlap, 
                                       buffer):
     """ 
     This function is used to cut up images of any input size into segments of a fixed size, with empty clipped areas 
@@ -68,7 +68,6 @@ def image_clip_to_segment_and_convert(image_array, mask_array, image_height_size
     - mask_array: Numpy array representing the binary raster mask to mark out background and target pixels
     - image_height_size: Height of image segments to be used for model training
     - image_width_size: Width of image segments to be used for model training
-    - mode: Integer representing the status of image size
     - percentage_overlap: Percentage of overlap between image patches extracted by sliding window to be used for model 
                           training
     - buffer: Percentage allowance for image patch to be populated by zeros for positions with no valid data values
@@ -80,26 +79,13 @@ def image_clip_to_segment_and_convert(image_array, mask_array, image_height_size
     """
     
     y_size = ((image_array.shape[0] // image_height_size) + 1) * image_height_size
+    y_pad = int(y_size - image_array.shape[0])
     x_size = ((image_array.shape[1] // image_width_size) + 1) * image_width_size
+    x_pad = int(x_size - image_array.shape[1])
     
-    if mode == 0:
-        img_complete = np.zeros((y_size, image_array.shape[1], image_array.shape[2]))
-        mask_complete = np.zeros((y_size, mask_array.shape[1], 1))
-        img_complete[0 : image_array.shape[0], 0 : image_array.shape[1], 0 : image_array.shape[2]] = image_array
-        mask_complete[0 : mask_array.shape[0], 0 : mask_array.shape[1], 0] = mask_array
-    elif mode == 1:
-        img_complete = np.zeros((image_array.shape[0], x_size, image_array.shape[2]))
-        mask_complete = np.zeros((image_array.shape[0], x_size, 1))
-        img_complete[0 : image_array.shape[0], 0 : image_array.shape[1], 0 : image_array.shape[2]] = image_array
-        mask_complete[0 : mask_array.shape[0], 0 : mask_array.shape[1], 0] = mask_array
-    elif mode == 2:
-        img_complete = np.zeros((y_size, x_size, image_array.shape[2]))
-        mask_complete = np.zeros((y_size, x_size, 1))
-        img_complete[0 : image_array.shape[0], 0 : image_array.shape[1], 0 : image_array.shape[2]] = image_array
-        mask_complete[0 : mask_array.shape[0], 0 : mask_array.shape[1], 0] = mask_array
-    elif mode == 3:
-        img_complete = image_array
-        mask_complete = mask_array
+    img_complete = np.pad(image_array, ((0, y_pad), (0, x_pad), (0, 0)), mode = 'constant').astype(image_array.dtype)
+    mask_complete = np.pad(mask_array, ((0, y_pad), (0, x_pad), (0, 0)), mode = 'constant').astype(mask_array.dtype)
+
         
     img_list = []
     mask_list = []
@@ -179,18 +165,8 @@ def training_data_generation(DATA_DIR, img_height_size, img_width_size, perc, bu
             
         mask = training_mask_generation(img_files[file], polygon_files[file])
     
-        if (img.shape[0] % img_height_size != 0) and (img.shape[1] % img_width_size == 0):
-            img_array, mask_array = image_clip_to_segment_and_convert(img, mask, img_height_size, img_width_size, mode = 0, 
-                                                                      percentage_overlap = perc, buffer = buff)
-        elif (img.shape[0] % img_height_size == 0) and (img.shape[1] % img_width_size != 0):
-            img_array, mask_array = image_clip_to_segment_and_convert(img, mask, img_height_size, img_width_size, mode = 1, 
-                                                                      percentage_overlap = perc, buffer = buff)
-        elif (img.shape[0] % img_height_size != 0) and (img.shape[1] % img_width_size != 0):
-            img_array, mask_array = image_clip_to_segment_and_convert(img, mask, img_height_size, img_width_size, mode = 2, 
-                                                                      percentage_overlap = perc, buffer = buff)
-        else:
-            img_array, mask_array = image_clip_to_segment_and_convert(img, mask, img_height_size, img_width_size, mode = 3, 
-                                                                      percentage_overlap = perc, buffer = buff)
+        img_array, mask_array = image_clip_to_segment_and_convert(img, mask, img_height_size, img_width_size, 
+                                                                  percentage_overlap = perc, buffer = buff)
         
         img_array_list.append(img_array)
         mask_array_list.append(mask_array)
@@ -731,19 +707,11 @@ def image_model_predict(input_image_filename, output_filename, img_height_size, 
         img = np.transpose(f.read(tuple(np.arange(metadata['count']) + 1)), [1, 2, 0])
      
     y_size = ((img.shape[0] // img_height_size) + 1) * img_height_size
+    y_pad = int(y_size - img.shape[0])
     x_size = ((img.shape[1] // img_width_size) + 1) * img_width_size
+    x_size = int(x_size - img.shape[1])
     
-    if (img.shape[0] % img_height_size != 0) and (img.shape[1] % img_width_size == 0):
-        img_complete = np.zeros((y_size, img.shape[1], img.shape[2]))
-        img_complete[0 : img.shape[0], 0 : img.shape[1], 0 : img.shape[2]] = img
-    elif (img.shape[0] % img_height_size == 0) and (img.shape[1] % img_width_size != 0):
-        img_complete = np.zeros((img.shape[0], x_size, img.shape[2]))
-        img_complete[0 : img.shape[0], 0 : img.shape[1], 0 : img.shape[2]] = img
-    elif (img.shape[0] % img_height_size != 0) and (img.shape[1] % img_width_size != 0):
-        img_complete = np.zeros((y_size, x_size, img.shape[2]))
-        img_complete[0 : img.shape[0], 0 : img.shape[1], 0 : img.shape[2]] = img
-    else:
-         img_complete = img
+    img_complete = np.pad(img, ((0, y_pad), (0, x_pad), (0, 0)), mode = 'constant').astype(metadata['dtype'])
             
     prob_mask = np.zeros((img_complete.shape[0], img_complete.shape[1], 1))
     weight_mask = np.zeros((img_complete.shape[0], img_complete.shape[1], 1))
