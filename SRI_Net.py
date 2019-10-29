@@ -709,7 +709,7 @@ def image_model_predict(input_image_filename, output_filename, img_height_size, 
     y_size = ((img.shape[0] // img_height_size) + 1) * img_height_size
     y_pad = int(y_size - img.shape[0])
     x_size = ((img.shape[1] // img_width_size) + 1) * img_width_size
-    x_size = int(x_size - img.shape[1])
+    x_pad = int(x_size - img.shape[1])
     
     img_complete = np.pad(img, ((0, y_pad), (0, x_pad), (0, 0)), mode = 'constant').astype(metadata['dtype'])
             
